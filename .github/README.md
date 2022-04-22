@@ -1,0 +1,396 @@
+# Sauron loader class 101
+
+### MS-DOS ASM from 20 Nov 1991.
+
+Original archive was named `SAURON.ZIP` in [The Humble Review 1](https://defacto2.net/f/a56d0).
+
+Greetings and welcome to the 1st issue of LOADER CLASS 101.  Your teacher
+for the class is the "VGA KING" Sauron.  I am assuming that you have a
+general knowledge of assembly for this. If not, pick up an assembly book to
+help you learn the basics and then this will make more sense.  I am using
+turbo assembler V2.0 for all these examples but Microsoft's Assmbler should
+work just as well.  In this 1st issue, I am covering:
+
+- Displaying a VGA 320x200x256c picture
+- Pallete Scrolling
+- Fading Techniques
+
+```
+============================================================================
+
+Included with this .ZIP is a few utilities to help you.  They are:
+------------------------------------------------------------------
+INTRO  .EXE  - Re-orders the BMP so it is easier to use
+CUT    .EXE  - This cuts the end off any file.
+GIF2BMP.EXE  - Used by INTRO.EXE to convert a 320x200x256c gif to BMP.
+
+============================================================================
+
+The other files in this .ZIP are:
+---------------------------------
+SAURON .NFO  - This file.
+HUMBLE .ASM  - The source code for the example.
+PICTURE.DAT  - The example picture converted with INTRO.EXE
+PICTURE.GIF  - The example GIF
+B      .BAT  - The file you run to compile the example (note, you must have
+               TASM and TLINK in your path)
+256    .DAT  - 256 0's used in the stack.
+
+============================================================================
+```
+
+Lets first concentrate on displaying a 320x200x256c picture.  The 1st thing
+you must do is create/find a GIF.  Then use the program `INTRO.EXE` to convert
+the GIF to a BMP in useable format. If you are having problems running this
+program, make sure your `COMSPEC` is set pointing to your `command.com`.
+
+  For Example, something like this should be in your autoexec.bat file:
+  `COMSPEC=C:\command.com`
+  
+I have knowticed that this program doesn't work on GIFLITED GIF's.
+Now, you should have a .DAT file that is 64768 bytes long.  The 1st 768
+bytes are the pallete.  The next 64000 is the picture starting from the top
+left to the bottom right.
+
+Here's a Skeleton for displaying a picture along with comments:
+```asm
+;----------------------------------------------------------------------
+  DOSSEG                           ; so we can use the CUT procedure
+
+picture segment byte public 'DATA'
+  pal      db     768 dup (0)      ; the pallete of this picture (256*3)
+  pic      db   64000 dup (0)      ; The actual picture.  (320*200)
+picture ends
+
+stacks  segment byte stack 'STACK'
+  thestak  db   256 dup (0)        ; the STACK used by the microprocessor
+stacks  ends
+
+code    segment byte public 'code'
+        assume  cs:code, ss:stacks
+
+MAIN:   mov     ax,0013h           ; sets screen to 320x200x256c
+        int     10h                ; sets screen to 320x200x256c when ax =13h
+
+        mov     ax,picture         ;BEGIN setup pallete
+        mov     es,ax
+        mov     dx,offset pal
+        mov     ax,1012h
+        mov	bx,0
+        mov     cx,256
+        int     10h                ;END   setup pallete
+
+        mov     ax,picture         ;BEGIN copy picture to vga card.
+        mov     ds,ax
+        mov     ax,0a000h
+        mov     es,ax
+        mov     di,0
+        mov     si,offset pic
+        mov     cx,64000/2
+        rep     movsw              ;END   copy picture to vga card.
+
+HERE:	mov	ah,1               ;poll keyboard for a key
+	int	16h                ;poll keyboard for a key when ah = 1
+	jz	HERE               ;if no key then Jump to HERE
+	mov	ah,0               ;clear keyboard buffer
+	int	16h                ;clear keyboard buffer when ah=0
+
+        mov     ax,0003            ; sets screen to TEXT 80x25
+        int     10h                ; sets screen to TEXT 80x25 when ax = 3
+        mov     ax,4c00h           ; program EXIT
+        int     21h                ; program EXIT when ax = 4c00h
+
+code    ends
+        end     MAIN
+;----------------------------------------------------------------------------
+```
+
+You may cut this out and make a .ASM file out of it.
+
+This program uses 3 segments (CODE,PICTURE,STACKS (in that order)).  Most of
+this program should make sense to you but I will explain 2 sections a little
+more.
+1)  The Pallete Section.  This is a BIOS call which sets up the pallete.
+    To call this BIOS call, you must setup AX with 1012h and call INT 10h.
+    There are 256 colors and for each color there is 3 HUE's.  (R)ed,
+    (G)reen, and (B)lue.  That means `256*3=768` bytes of data must be set
+    for 256 colors.
+    
+    ```
+    Before calling this BIOS call, you must set up BX,CX,DX and ES.
+      ES - To be loaded with the SEGMENT which your pallete data is in.
+           Just move PICTURE into AX and then AX into ES.  You cannot do
+           this: MOV ES,picture.  So you must go about it this way.
+      BX - The 1st color to set (0-255). Since we are setting all 256 colors,
+           set this # to 0.
+      CX - The # of colors to set.
+      DX - The starting area for the pallete.
+    ```
+    
+2)  The moving the picture to the vga card (0a000h).  There is 64k setup
+    at 0a000h for a 320x200 picture.  For speed, the command REP MOVSW is
+    being used.  This will move 2 bytes at a time from DS:SI to ES:DI.
+
+Now to compile all this.  I have created a batch file called B.BAT which
+will help speed things up ALOT.  Here is the batch file and an explanation
+of what it does.
+
+```cmd
+tasm sauron                                   ; runs tasm on sauron.asm
+tlink sauron                                  ; runs tlink on sauron.obj
+
+cut sauron.exe 65024                          ; cuts 65024 off the end of the
+                                              ; sauron.exe  64768  (picture)
+                                              ;            +  256  (stack)
+                                              ;            =65024
+copy /b sauron.exe+PICTURE.DAT+256.dat sauron.exe     ; puts it all together.
+                                              ; /b is to make a BINARY copy.
+sauron                                        ; runs SAURON.EXE
+```
+
+Pretty easy huh?  Now lets try some pallete cycling and fading techniques
+without using BIOS calls.  If you want to know what color to start the
+pallete cycling, use your favorite paint program (I use autodesk animator
+pro) to find the starting pallete color # and the ending pallete #.
+
+There are a few changes to the previous example to achieve this.  Here is
+the finished program along with comments on the new code.
+
+```asm
+        dosseg
+
+data    segment byte public 'data'
+  credits       db      "LOADER CLASS 101",13,10
+                db      "Taught By - Sauron THG F/X Prez$"
+
+  palbegin      db      221                  ;
+  palbegincx    dw      221*3
+  palcx         dw      20*3
+
+  paltmp3       db      3 dup (0)
+  paltmp        db      256*3 dup (0)
+
+  paltmp2       db      256*3 dup (0)
+  fadepoint     db      64
+  fadepoint2    db      64
+data    ends
+
+picture segment byte public 'data'
+  pal           db        768 dup (0)
+  pic           db      64000 dup (0)
+picture ends
+
+stacks  segment byte stack 'stack'
+  thestak 	db      256 dup (0h)
+stacks  ends
+
+code    segment byte public 'code'
+        assume  cs:code, ds:data, ss:stacks
+start:  jmp	main
+
+PalleteRotate proc near
+        mov     ax,data
+        mov     es,ax
+	mov	ds,ax
+
+PDN:    mov     cx,[palcx]
+        mov     di,offset paltmp3           ;to here
+        mov     si,offset paltmp            ;from here
+        rep     movsb
+        mov     cx,3
+        mov     si,offset paltmp3
+        rep     movsb
+
+        mov     dx,03dah
+vr1:    in      al,dx
+        and     al,08
+        jz      vr1
+        mov     al,[palbegin]
+        mov     dx,03c8h
+        out     dx,al
+        inc     dx
+        mov     cx,[palcx]
+        mov     si,offset paltmp
+pl13:   lodsb
+        out     dx,al
+        loop    pl13
+
+        ret
+PalleteRotate endp
+
+FADEOUT 	proc
+        mov     ax,data
+        mov     ds,ax
+        mov     es,ax
+
+        mov     ax,picture
+        mov     ds,ax
+        mov     cx,768/2
+        mov     si,offset pal
+        mov     di,offset paltmp
+        rep     movsw
+        mov     ax,data
+        mov     ds,ax
+        mov     es,ax
+flp1:   mov     bx,768
+flp2:   cmp     paltmp[bx],0
+        je      fl3
+        dec     paltmp[bx]
+fl3:    dec     bx
+        jnz     flp2
+        mov     dx,offset paltmp
+        mov     ax,1012h
+        mov	bx,0
+        mov     cx,256
+        int     10h
+        dec     [fadepoint]
+        jnz     flp1
+
+endfadeout:	ret
+FADEOUT	endp
+
+;========================================================================
+
+MAIN:   mov     ax,0013h
+        int     10h
+
+        mov     ax,picture      ;BEGIN setup pallete
+        mov     es,ax
+	mov	ds,ax
+        mov     dx,offset pal
+        mov     ax,1012h
+        mov	bx,0
+        mov     cx,256
+        int     10h             ;END   setup pallete
+
+        mov     ax,picture      ;BEGIN copy picture to vga card.
+        mov     ds,ax
+        mov     ax,0a000h
+        mov     es,ax
+        mov     di,0
+        mov     si,offset pic
+        mov     cx,64000/2
+        rep     movsw           ;END   copy picture to vga card.
+
+
+        mov     ax,data               ;copy pallete to temp for rotating pal
+        mov     ds,ax
+        mov     cx,[palcx]
+        mov     dx,[palbegincx]
+        mov     ax,picture
+        mov     ds,ax
+        mov     ax,data
+        mov     es,ax
+        mov     si,offset pal
+        add     si,dx
+        mov     di,offset paltmp
+        rep     movsb                 ;end copy pallete
+
+
+HERE:   call    PalleteRotate
+
+	mov	ah,1
+	int	16h
+	jz	HERE
+	mov	ah,0
+	int	16h
+
+        call    fadeout
+
+        mov     ax,0003
+        int     10h
+	mov	ax,data
+	mov	ds,ax
+        mov     ah,9
+        mov     dx,offset credits
+        int     21h
+        mov     ax,4c00h
+        int     21h
+
+code    ends
+        end     start
+```
+
+The 2 major new procedures are PALLETE CYCLING and FADEOUT.  Here they are
+in detail.
+
+1)  PALLETE CYCLING.  1st I have it copy just the section of the pallete
+    that we are going to rotate to a buffer. Now to the actual
+    palleterotate procedure.  Basically, the 1st section shifts the section
+    of the pallete DOWN by 1.  Then it takes the 3 bottom bytes and puts
+    them at the top.  This is to make sure you keep the pallete rotating
+    and not just shift them all off the bottom.
+
+```asm
+        mov     ax,data
+        mov     ds,ax
+        mov     es,ax
+        mov     cx,[palcx]
+        mov     di,offset paltmp3           ;to here
+        mov     si,offset paltmp            ;from here
+        rep     movsb
+        mov     cx,3
+        mov     si,offset paltmp3
+        rep     movsb
+```
+
+The next section writes directly to the vga card.
+Here is what this procedure does:
+
+```asm
+        mov     dx,03dah                ; check for vertical retrace
+vr1:    in      al,dx                   ;
+        and     al,08                   ;
+        jz      vr1                     ; end checking section
+
+        mov     al,[palbegin]
+        mov     dx,03c8h
+        out     dx,al
+        inc     dx
+        mov     cx,[palcx]
+        mov     si,offset paltmp
+pl13:   lodsb
+        out     dx,al
+        loop    pl13
+```
+
+1st, we check for vertical retrace to be sure we don't get "SNOW" on
+the screen.  For direct pallete cycling, you must have these registers
+setup first:
+    
+This will select the starting color to start copying over bytes.
+    
+```asm
+        mov     al,[palbegin]       ; # to start cycling colors
+        mov     dx,03c8h            ; port address
+        out     dx,al
+```
+
+This will repeat CX # of times to copy all colors into the new pallete.
+
+```asm
+        inc     dx                  ; dx is really now 03c9h
+        mov     cx,[palcx]          ; # of colors * 3 to set
+        mov     si,offset paltmp    ; starting offset for colors
+pl13:   lodsb                       ; move into al, what is in DS:SI and
+                                    ; increment SI
+        out     dx,al               ; output to port 03c9h byte in AL
+        loop    pl13                ; repeat till cx = 0 and DEC CX
+```
+
+I hope this will help you in programming the VGA card in assembly.  It is now
+5:47am in the morning and I am TIRED so the end of this article might not
+make too much sense.  From these examples, you can display multiple pictures,
+fading in/out, and pallete cycling.  I will try to clear up any question in
+the next issue of the Humble Review.  If you have a question, you can contact
+me at [The Warriors Guild BBS](https://defacto2.net/g/warriors-guild-bbs) - (708)653-1839.
+
+Next issue, I am going to cover scrollers.
+
+`****************************************************************************`
+
+If you use any of this code or this helps you understand VGA programming
+please greet me somewhere in your loader.  You don't have to give me credit
+for using my code as this is the basics of VGA programming.  HAPPY HACKING!
+
+`****************************************************************************`
