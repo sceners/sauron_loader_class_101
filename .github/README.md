@@ -4,6 +4,10 @@
 
 Original archive was named `SAURON.ZIP` in [The Humble Review 1](https://defacto2.net/f/a56d0).
 
+---
+
+##### Markdown reformat of SAURON.NFO.
+
 Greetings and welcome to the 1st issue of LOADER CLASS 101.  Your teacher
 for the class is the "VGA KING" Sauron.  I am assuming that you have a
 general knowledge of assembly for this. If not, pick up an assembly book to
